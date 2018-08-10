@@ -32,9 +32,9 @@ import android.arch.lifecycle.Observer
  * map
  */
 
-private class MapExt2<T, R>(private val mapper: (T?) -> R?) : Converter<T> {
+private class MapExt2<T, R>(private val mapper: (T?) -> R?) : Operator<T, R> {
 
-    override fun convert(value: T?): Any? = mapper(value)
+    override fun run(value: T?): Result<R>? = mapper(value)?.let { Result(it) }
 }
 
 fun <T, R> LiveData<T>.map2(mapper: (T?) -> R?): LiveData<R> = SupportLiveData<T, R>(this, MapExt2(mapper))
@@ -46,9 +46,9 @@ fun <T, R> NonNullLiveData<T>.map2(mapper: (T) -> R): NonNullLiveData<R> = Suppo
  * nonNull
  */
 
-private class NonNullExt2<T> : Converter<T> {
+private class NonNullExt2<T> : Operator<T, T> {
 
-    override fun convert(value: T?): Any? = value ?: NOT_SET
+    override fun run(value: T?): Result<T>? = value?.let { Result(it) }
 }
 
 fun <T> LiveData<T>.nonNull2(): NonNullLiveData<T> = SupportLiveData(this, NonNullExt2())
@@ -78,23 +78,20 @@ fun <T> NonNullLiveData<T>.observe2(observer: (t: T) -> Unit) {
  * Supporting classes
  */
 
-private val NOT_SET = Any()
-
 open class NonNullLiveData<T> : LiveData<T>()
 
-private interface Converter<IN> {
+interface Operator<IN, OUT> {
 
-    fun convert(value: IN?): Any?
+    fun run(value: IN?): Result<OUT>?
 }
 
-private class SupportLiveData<IN, OUT>(private val source: LiveData<IN>, private val converter: Converter<IN>) : NonNullLiveData<OUT>() {
+data class Result<T>(val value: T)
 
-    @Suppress("UNCHECKED_CAST")
+private class SupportLiveData<IN, OUT>(private val source: LiveData<IN>, private val operator: Operator<IN, OUT>) : NonNullLiveData<OUT>() {
+
     private val observer = Observer<IN> {
-        val convertedValue = converter.convert(it)
-        if (convertedValue != NOT_SET) {
-            value = convertedValue as? OUT
-        }
+        val convertedValue = operator.run(it)
+        convertedValue?.value?.let { value = it }
     }
 
     override fun onActive() {
