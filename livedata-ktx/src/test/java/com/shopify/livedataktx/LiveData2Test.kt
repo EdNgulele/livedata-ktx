@@ -99,4 +99,19 @@ class LiveData2Test : LifecycleOwner {
         assertEquals(expecteds, actuals)
         assertEquals(targetLiveData is MutableLiveData<*>, false)
     }
+
+    @Test
+    fun single_observeDirectly() {
+        val liveData: MutableLiveData<Int> = MutableLiveData()
+        val actuals: MutableList<Int?> = mutableListOf()
+        val observer: (t: Int?) -> Unit = { actuals.add(it) }
+
+        liveData.value = 1
+        liveData.single2().observe(this, observer)
+        liveData.value = 2
+        liveData.value = 3
+
+        val expecteds = mutableListOf(2, 3)
+        assertEquals(expecteds, actuals)
+    }
 }

@@ -38,7 +38,7 @@ private class MapExt2<T, R>(private val mapper: (T?) -> R?) : Operator<T, R> {
 }
 
 fun <T, R> LiveData<T>.map2(mapper: (T?) -> R?): LiveData<R> = SupportLiveData<T, R>(this, MapExt2(mapper))
-fun <T, R> NonNullLiveData<T>.map2(mapper: (T) -> R): NonNullLiveData<R> = SupportLiveData<T, R>(this, MapExt2<T, R>({
+fun <T, R> NonNullLiveData<T>.map2(mapper: (T) -> R): NonNullLiveData<R> = SupportLiveData(this, MapExt2({
     return@MapExt2 mapper(it!!)!!
 }))
 
@@ -52,6 +52,18 @@ private class NonNullExt2<T> : Operator<T, T> {
 }
 
 fun <T> LiveData<T>.nonNull2(): NonNullLiveData<T> = SupportLiveData(this, NonNullExt2())
+
+/**
+ * single
+ */
+
+private class SingleExt2<T> : Operator<T, T> {
+
+    override fun run(value: T?): Result<T>? = value?.let { Result(it) }
+}
+
+fun <T> LiveData<T>.single2(): LiveData<T> = SupportLiveData(this, SingleExt2(), true)
+fun <T> NonNullLiveData<T>.single2(): NonNullLiveData<T> = SupportLiveData(this, SingleExt2(), true)
 
 /**
  * observers
@@ -85,14 +97,21 @@ interface Operator<IN, OUT> {
     fun run(value: IN?): Result<OUT>?
 }
 
-data class Result<T>(val value: T)
+class Result<T>(val value: T)
 
-private class SupportLiveData<IN, OUT>(private val source: LiveData<IN>, private val operator: Operator<IN, OUT>) : NonNullLiveData<OUT>() {
+class SupportLiveData<IN, OUT> internal constructor(private val source: LiveData<IN>,
+                                                    private val operator: Operator<IN, OUT>,
+                                                    internal val isSingle: Boolean) : NonNullLiveData<OUT>() {
 
     private val observer = Observer<IN> {
         val convertedValue = operator.run(it)
         convertedValue?.value?.let { value = it }
     }
+
+    private var _version = 0
+    internal val version: Int get() = if ((source as? SupportLiveData<*, *>)?.isSingle == true) source.version else _version
+
+    constructor(source: LiveData<IN>, operator: Operator<IN, OUT>) : this(source, operator, (source as? SupportLiveData<*, *>)?.isSingle == true)
 
     override fun onActive() {
         super.onActive()
@@ -102,5 +121,25 @@ private class SupportLiveData<IN, OUT>(private val source: LiveData<IN>, private
     override fun onInactive() {
         super.onInactive()
         source.removeObserver(observer)
+    }
+
+    @Deprecated("Use observe extension")
+    override fun observe(owner: LifecycleOwner, observer: Observer<OUT>) {
+        val observerVersion = version
+        super.observe(owner, Observer {
+            if (!isSingle || observerVersion < version) {
+                observer.onChanged(it)
+            }
+        })
+    }
+
+    @Deprecated("Use observe extension without LifecycleOwner")
+    override fun observeForever(observer: Observer<OUT>) {
+        super.observeForever(observer)
+    }
+
+    override fun setValue(value: OUT?) {
+        _version++
+        super.setValue(value)
     }
 }
